@@ -1,31 +1,47 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/widgets/primary_button.dart';
 import 'package:go_router/go_router.dart';
+import '../../requests/data/providers/requests_provider.dart';
+import '../../requests/data/models/request_model.dart';
 
-class ProviderOpportunitiesScreen extends StatelessWidget {
+class ProviderOpportunitiesScreen extends ConsumerWidget {
   const ProviderOpportunitiesScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final opportunitiesAsync = ref.watch(opportunitiesProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Yeni Fırsatlar'),
       ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(AppSizes.p16),
-        itemCount: 3,
-        itemBuilder: (context, index) {
-          return const OpportunityCard();
+      body: opportunitiesAsync.when(
+        data: (opportunities) {
+          if (opportunities.isEmpty) {
+            return const Center(child: Text('Şu an yeni bir fırsat bulunmuyor.'));
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.all(AppSizes.p16),
+            itemCount: opportunities.length,
+            itemBuilder: (context, index) {
+              return OpportunityCard(request: opportunities[index]);
+            },
+          );
         },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (err, stack) => Center(child: Text('Bir hata oluştu: $err')),
       ),
     );
   }
 }
 
 class OpportunityCard extends StatelessWidget {
-  const OpportunityCard({super.key});
+  final RequestModel request;
+  
+  const OpportunityCard({super.key, required this.request});
 
   @override
   Widget build(BuildContext context) {
@@ -44,20 +60,21 @@ class OpportunityCard extends StatelessWidget {
                   decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
                   child: const Text('Yeni Talep', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
-                const Text('5 dk önce', style: TextStyle(color: AppColors.textHint, fontSize: 12)),
+                const Text('Yeni', style: TextStyle(color: AppColors.textHint, fontSize: 12)),
               ],
             ),
             const SizedBox(height: AppSizes.p12),
-            const Text('Derinlemesine Ev Temizliği (Boş Ev)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(request.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: AppSizes.p12),
-            _buildDetailRow(Icons.location_on, 'Ataşehir, İstanbul (Sana 4 km uzakta)'),
+            if (request.location != null)
+              _buildDetailRow(Icons.location_on, request.location!),
             const SizedBox(height: 8),
-            _buildDetailRow(Icons.calendar_month, '15 Mayıs 2026, Cuma - Esnek Zaman'),
+            _buildDetailRow(Icons.calendar_month, '${request.createdAt.day}/${request.createdAt.month}/${request.createdAt.year}'),
             const Divider(height: 32),
             PrimaryButton(
               text: 'Detayları İncele & Teklif Ver',
               onPressed: () {
-                context.push('/submit-proposal');
+                context.push('/submit-proposal', extra: request);
               },
             ),
           ],

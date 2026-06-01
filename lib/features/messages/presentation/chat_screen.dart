@@ -1,27 +1,102 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/constants/app_sizes.dart';
+import '../../auth/data/providers/auth_provider.dart';
+import '../data/services/message_service.dart';
+import '../data/models/message_model.dart';
 
-class ChatScreen extends StatelessWidget {
-  const ChatScreen({super.key});
+class ChatScreen extends ConsumerStatefulWidget {
+  final String otherUserId;
+  final String otherUserName;
+
+  const ChatScreen({
+    super.key,
+    required this.otherUserId,
+    required this.otherUserName,
+  });
+
+  @override
+  ConsumerState<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends ConsumerState<ChatScreen> {
+  final TextEditingController _messageController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Mark messages as read when opening chat
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final user = ref.read(authServiceProvider).currentUser;
+      if (user != null) {
+        ref.read(messageServiceProvider).markMessagesAsRead(user.id, widget.otherUserId);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
+
+    final user = ref.read(authServiceProvider).currentUser;
+    if (user == null) return;
+
+    _messageController.clear();
+
+    try {
+      await ref.read(messageServiceProvider).sendMessage(
+        senderId: user.id,
+        receiverId: widget.otherUserId,
+        content: text,
+      );
+      // Auto scroll to bottom
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent + 100, // Roughly scroll down
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final user = ref.watch(authServiceProvider).currentUser;
+    if (user == null) {
+      return const Scaffold(body: Center(child: Text('Giriş yapınız.')));
+    }
+
+    final messageService = ref.read(messageServiceProvider);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
+        title: Row(
           children: [
-            CircleAvatar(
+            const CircleAvatar(
               radius: 16,
               backgroundColor: AppColors.border,
               child: Icon(Icons.person, size: 16, color: AppColors.textSecondary),
             ),
-            SizedBox(width: 12),
+            const SizedBox(width: 12),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Ahmet Usta', style: TextStyle(fontSize: 16)),
-                Text('Çevrimiçi', style: TextStyle(fontSize: 12, color: AppColors.secondary, fontWeight: FontWeight.normal)),
+                Text(widget.otherUserName, style: const TextStyle(fontSize: 16)),
+                const Text('Çevrimiçi', style: TextStyle(fontSize: 12, color: AppColors.secondary, fontWeight: FontWeight.normal)),
               ],
             ),
           ],
@@ -29,18 +104,39 @@ class ChatScreen extends StatelessWidget {
       ),
       body: Column(
         children: [
-          _buildProposalSummary(context),
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(AppSizes.p16),
-              children: [
-                _buildSystemMessage('Dün, 14:30'),
-                _buildMessageBubble('Merhaba, fiyat teklifimi ilettim incelerseniz sevinirim.', false, '14:35'),
-                _buildMessageBubble('Evet gördüm, temizlenecek alan 120 metrekare, sorun olmaz değil mi?', true, '14:40'),
-                _buildMessageBubble('Hiç problem değil, kendi malzemelerimizle geliyoruz ekstra bir şeye gerek yok.', false, '14:42'),
-                _buildSystemMessage('Bugün, 10:40'),
-                _buildMessageBubble('Konum bilgisi atabilir misiniz?', false, '10:42'),
-              ],
+            child: StreamBuilder<List<MessageModel>>(
+              stream: messageService.getChatMessages(user.id, widget.otherUserId),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(child: Text('Hata: ${snapshot.error}'));
+                }
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final messages = snapshot.data ?? [];
+                
+                // Keep marked as read
+                if (messages.any((m) => m.receiverId == user.id && !m.isRead)) {
+                  messageService.markMessagesAsRead(user.id, widget.otherUserId);
+                }
+
+                if (messages.isEmpty) {
+                  return const Center(child: Text('Henüz mesaj yok', style: TextStyle(color: AppColors.textHint)));
+                }
+
+                return ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.all(AppSizes.p16),
+                  itemCount: messages.length,
+                  itemBuilder: (context, index) {
+                    final msg = messages[index];
+                    final isMe = msg.senderId == user.id;
+                    return _buildMessageBubble(msg, isMe);
+                  },
+                );
+              },
             ),
           ),
           _buildChatInputRow(),
@@ -49,51 +145,7 @@ class ChatScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildProposalSummary(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSizes.p12),
-      margin: const EdgeInsets.all(AppSizes.p16),
-      decoration: BoxDecoration(
-        color: AppColors.primary.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(AppSizes.radiusMedium),
-        border: Border.all(color: AppColors.primary.withOpacity(0.2)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.receipt_long, color: AppColors.primary),
-          ),
-          const SizedBox(width: AppSizes.p12),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Teklif Özeti: Ev Temizliği', style: TextStyle(fontWeight: FontWeight.bold)),
-                Text('Teklif edilen fiyat: 1200 TL', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 13)),
-              ],
-            ),
-          ),
-          const Icon(Icons.chevron_right, color: AppColors.textHint),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSystemMessage(String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Center(
-        child: Text(text, style: const TextStyle(fontSize: 12, color: AppColors.textHint, fontWeight: FontWeight.w600)),
-      ),
-    );
-  }
-
-  Widget _buildMessageBubble(String text, bool isMe, String time) {
+  Widget _buildMessageBubble(MessageModel msg, bool isMe) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -114,16 +166,37 @@ class ChatScreen extends StatelessWidget {
                 ),
                 border: isMe ? null : Border.all(color: AppColors.border),
               ),
-              child: Text(
-                text,
-                style: TextStyle(color: isMe ? Colors.white : AppColors.textPrimary),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    msg.content,
+                    style: TextStyle(color: isMe ? Colors.white : AppColors.textPrimary),
+                  ),
+                ],
               ),
             ),
           ),
           const SizedBox(width: 8),
           Padding(
             padding: const EdgeInsets.only(bottom: 4),
-            child: Text(time, style: const TextStyle(fontSize: 10, color: AppColors.textHint)),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${msg.createdAt.hour.toString().padLeft(2, '0')}:${msg.createdAt.minute.toString().padLeft(2, '0')}', 
+                  style: const TextStyle(fontSize: 10, color: AppColors.textHint)
+                ),
+                if (isMe) ...[
+                  const SizedBox(width: 4),
+                  Icon(
+                    msg.isRead ? Icons.done_all : Icons.check,
+                    size: 14,
+                    color: msg.isRead ? AppColors.primary : AppColors.textHint,
+                  ),
+                ]
+              ],
+            ),
           ),
         ],
       ),
@@ -140,12 +213,9 @@ class ChatScreen extends StatelessWidget {
       child: SafeArea(
         child: Row(
           children: [
-            IconButton(
-              icon: const Icon(Icons.add_photo_alternate_outlined, color: AppColors.textHint),
-              onPressed: () {},
-            ),
             Expanded(
               child: TextField(
+                controller: _messageController,
                 decoration: InputDecoration(
                   hintText: 'Mesaj yaz...',
                   border: OutlineInputBorder(
@@ -156,6 +226,7 @@ class ChatScreen extends StatelessWidget {
                   fillColor: AppColors.background,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 ),
+                onSubmitted: (_) => _sendMessage(),
               ),
             ),
             const SizedBox(width: 8),
@@ -166,7 +237,7 @@ class ChatScreen extends StatelessWidget {
               ),
               child: IconButton(
                 icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                onPressed: () {},
+                onPressed: _sendMessage,
               ),
             )
           ],

@@ -1,23 +1,43 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/colors.dart';
+import '../data/providers/auth_provider.dart';
 
-class SplashScreen extends StatefulWidget {
+class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
+class _SplashScreenState extends ConsumerState<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 2), () {
+    _checkAuth();
+  }
+
+  Future<void> _checkAuth() async {
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      final role = await ref.read(authServiceProvider).getUserRole();
+      if (mounted) {
+        if (role == 'provider') {
+          context.go('/provider-home');
+        } else {
+          context.go('/home');
+        }
+      }
+    } else {
       if (mounted) {
         context.go('/onboarding');
       }
-    });
+    }
   }
 
   @override

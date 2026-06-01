@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/constants/app_sizes.dart';
 import 'package:go_router/go_router.dart';
+import '../../profile/data/providers/profile_provider.dart';
 
-class ProviderSettingsScreen extends StatelessWidget {
+class ProviderSettingsScreen extends ConsumerWidget {
   const ProviderSettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profileAsync = ref.watch(profileProvider);
+    final name = profileAsync.value?['full_name'] ?? 'Usta';
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('Usta Profili'),
@@ -22,8 +27,8 @@ class ProviderSettingsScreen extends StatelessWidget {
               child: Icon(Icons.handyman, color: Colors.white, size: 40),
             ),
             const SizedBox(height: AppSizes.p16),
-            const Text('Ahmet Usta', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24)),
-            const Text('Temizlik Uzmanı', style: TextStyle(color: AppColors.textSecondary)),
+            Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 24)),
+            const Text('Hizmet Veren', style: TextStyle(color: AppColors.textSecondary)),
             const SizedBox(height: AppSizes.p32),
             _buildProfileMenuItem(Icons.business_center_outlined, 'Hizmet Bölgelerim'),
             const Divider(height: 1),
